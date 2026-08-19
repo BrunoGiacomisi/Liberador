@@ -26,6 +26,10 @@ FILAS = [
      "WP1ZZZXAZTL251414", "Nordenwagen Uruguay Sa", 1716, "NO", 5, "17/06/2026", "", ""],
     ["BRPNS", "BRPNS", "S329509809", "VEH", "VEH", 503, "RENAULT",
      "PENDING", "SANTA ROSA AUTOMOTORS", "DD1651", "SI", "", "", "", ""],
+    ["DHEAM", "UYMVD", "S329701796", "40HC", "40HC", 1, "Consolidated Shipments stc 55 pkgs spare parts",
+     "GCNU4865094", "Jauser Soluciones Logisticas", 1714, "NO", 5, "28/08/2026", "", ""],
+    ["DHEAM", "UYMVD", "S329701796", "40HC", "40HC", 1, "Consolidated Shipments stc 44 pkgs spare parts",
+     "ACLU9803492", "Jauser Soluciones Logisticas", 1714, "NO", 5, "28/08/2026", "", ""],
 ]
 
 TITULO_FILA1 = "PGD GRANDE FRANCIA 0426 ETA 4/7/25 ESCALA:  MANIFIESTO: 198401"

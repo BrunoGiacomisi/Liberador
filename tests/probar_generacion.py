@@ -1,5 +1,5 @@
 """Prueba de punta a punta sin interfaz grafica: lee el Excel de prueba,
-filtra deposito 1716 y genera los PDF en una carpeta de salida local
+filtra depositos 1716 y 1714 y genera los PDF en una carpeta de salida local
 (en vez de la carpeta Descargas real, para no ensuciarla durante pruebas)."""
 
 import sys
@@ -25,11 +25,12 @@ def main() -> None:
         return
 
     libres = leer_libres_desde_excel(RUTA_EXCEL)
-    print(f"Lineas con deposito 1716 encontradas: {len(libres)}")
+    print(f"Libres armados: {len(libres)}")
     for libre in libres:
         print(
-            f"  BL={libre.bl} | extra1={libre.extra1!r} | extra3={libre.extra3!r} | "
-            f"vencimiento={libre.fecha_vencimiento} | item={libre.items[0]}"
+            f"  tipo={libre.deposito} | BL={libre.bl} | archivo={libre.nombre_base_archivo!r} | "
+            f"extra1={libre.extra1!r} | extra3={libre.extra3!r} | "
+            f"vencimiento={libre.fecha_vencimiento} | items={len(libre.items)}"
         )
 
     generados = generar_pdfs(

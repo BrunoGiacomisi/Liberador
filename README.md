@@ -1,12 +1,15 @@
 # Generador de Libres - TECNORDI SA
 
 Aplicación de escritorio que genera automáticamente los PDF de "libre" a
-partir de un Excel de manifiesto, para todas las líneas cuyo **DEPOSITO**
-sea **1716**.
+partir de un Excel de manifiesto, para las líneas cuyo **DEPOSITO** sea
+**1716** (retiro TMM) o **1714** (libre de contenedor).
 
-Cada libre generado se descarga como PDF en la carpeta **Descargas** del
-usuario, nombrado con el número de **BL** de la línea correspondiente
-(ejemplo: `S329568298.pdf`).
+Los PDF se descargan en la carpeta **Descargas** del usuario:
+
+- Depósito **1716**: el archivo se nombra con el número de BL
+  (ejemplo: `S329568298.pdf`).
+- Depósito **1714**: el archivo se nombra con el BL más `CNT`
+  (ejemplo: `S329701796 CNT.pdf`).
 
 ## Para el usuario final (no técnico)
 
@@ -22,7 +25,9 @@ usuario, nombrado con el número de **BL** de la línea correspondiente
 
 3. Dentro del programa:
    - Paso 1: elegí el archivo Excel del manifiesto.
-   - Paso 2: escribí la fecha de llegada del barco (DD/MM/AAAA).
+   - Paso 2: escribí la fecha de llegada del barco (DD/MM/AAAA). Si
+     desmarcás **Incluir fechas en el PDF**, el documento sale sin
+     llegada del barco ni fecha de vencimiento.
    - Paso 3: apretá **"Generar libres"**.
 
 4. Los PDF quedan listos en tu carpeta **Descargas**.
@@ -35,21 +40,35 @@ usuario, nombrado con el número de **BL** de la línea correspondiente
   que va al lado de "ENTREGUESE:" en cada libre.
 - La **fila 2** tiene los títulos de columna (BL, TP, QTY, DESCRIPCION,
   CHASIS, CNEE, DEPOSITO, FECHA LIBRE PARA RETIRO Y/O DEVOLUCIÓN, etc.).
-- Se procesan solo las filas donde la columna **DEPOSITO** es **1716**.
-- Cada línea filtrada genera un PDF independiente con:
-  - Título: `TECNORDI SA`
-  - `ENTREGUESE: <dato de la fila 1>`
-  - Número de BL de la línea
-  - CNEE de la línea
-  - Una tabla con TP / QTY / DESCRIPCION / CHASIS / CNEE de esa línea
-  - `Retiro de la mercadería en TMM`
-  - `Llegada del barco: <fecha ingresada por el usuario>`
-  - `Fecha de vencimiento: <columna "FECHA LIBRE PARA RETIRO Y/O
-    DEVOLUCIÓN">`
-  - El texto legal fijo de TECNORDI SA
+- Se procesan las filas donde la columna **DEPOSITO** es **1716** o **1714**.
+
+### Depósito 1716 (retiro TMM)
+
+Cada línea genera un PDF independiente con:
+
+- Título: `TECNORDI SA`
+- `ENTREGUESE: <dato de la fila 1>`
+- Número de BL de la línea
+- CNEE de la línea
+- Una tabla con TP / QTY / DESCRIPCION / CHASIS / CNEE de esa línea
+- `Retiro de la mercadería en TMM`
+- `Llegada del barco: <fecha ingresada por el usuario>`
+- `Fecha de vencimiento: <columna "FECHA LIBRE PARA RETIRO Y/O
+  DEVOLUCIÓN">`
+- El texto legal fijo de TECNORDI SA
 
 Si dos líneas 1716 tienen el mismo número de BL, el segundo archivo se
 guarda como `BL_2.pdf` para no pisar al primero.
+
+### Depósito 1714 (libre de contenedor)
+
+Todas las líneas 1714 que compartan el mismo BL van juntas en **un solo
+PDF**, con una fila de tabla por cada contenedor. El documento es igual
+al de 1716, con estas diferencias:
+
+- Pie en rojo subrayado: `Devolución Murchison`
+- Primero `Fecha de vencimiento` y después `Llegada del barco`
+- Nombre de archivo: `BL CNT.pdf` (ejemplo: `S329701796 CNT.pdf`)
 
 La detección de columnas es flexible: no importa si hay pequeñas
 variaciones de tildes/mayúsculas en los títulos de columna (por ejemplo
@@ -84,7 +103,7 @@ librería de Python).
 ```
 main.py                Punto de entrada (arranca la interfaz gráfica)
 gui.py                  Interfaz gráfica (Tkinter)
-libre_core.py           Lógica: leer Excel, filtrar 1716, generar PDF
+libre_core.py           Lógica: leer Excel, filtrar 1716/1714, generar PDF
 templates/
   libre_template.html   Plantilla del PDF (Jinja2)
 tests/

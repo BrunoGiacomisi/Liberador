@@ -47,6 +47,9 @@
         font-weight: bold;
         margin-bottom: 18px;
     }
+    .retiro-subrayado {
+        text-decoration: underline;
+    }
     .fecha-linea {
         margin-bottom: 10px;
     }
@@ -107,10 +110,19 @@
         </tbody>
     </table>
 
+    {% if es_contenedor %}
+    <div class="retiro retiro-subrayado">Devoluci&oacute;n Murchison</div>
+    {% if incluir_fechas %}
+    <div class="fecha-linea">Fecha de vencimiento: {{ fecha_vencimiento }}</div>
+    <div class="fecha-linea">Llegada del barco: {{ fecha_llegada }}</div>
+    {% endif %}
+    {% else %}
     <div class="retiro">Retiro de la mercader&iacute;a en TMM</div>
-
+    {% if incluir_fechas %}
     <div class="fecha-linea">Llegada del barco: {{ fecha_llegada }}</div>
     <div class="fecha-linea">Fecha de vencimiento: {{ fecha_vencimiento }}</div>
+    {% endif %}
+    {% endif %}
 
     <div class="bloque-aclaraciones">
         <span class="aclaracion">VALIDO POR UNA SALIDA-UN STOCK</span>

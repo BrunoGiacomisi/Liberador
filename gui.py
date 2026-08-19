@@ -6,8 +6,9 @@ Pensada para usuarios sin conocimientos tecnicos:
   2. Ingresar la fecha de llegada del barco.
   3. Apretar "Generar libres".
 
-Los PDF resultantes se guardan automaticamente en la carpeta Descargas,
-usando el numero de BL de cada linea como nombre de archivo.
+Los PDF resultantes se guardan automaticamente en la carpeta Descargas.
+Los de deposito 1716 usan el numero de BL; los de 1714 (contenedor)
+usan el BL seguido de CNT.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import re
 import threading
 import webbrowser
 from pathlib import Path
-from tkinter import Tk, StringVar, filedialog, messagebox, ttk, END, DISABLED, NORMAL, WORD
+from tkinter import Tk, StringVar, BooleanVar, filedialog, messagebox, ttk, END, DISABLED, NORMAL, WORD
 from tkinter.scrolledtext import ScrolledText
 
 from libre_core import (
@@ -66,6 +67,7 @@ class GeneradorLibresApp:
         self.config_usuario = _cargar_config()
         self.ruta_excel_var = StringVar(value="")
         self.fecha_llegada_var = StringVar(value="")
+        self.incluir_fechas_var = BooleanVar(value=True)
         self.ruta_wkhtmltopdf = self.config_usuario.get("ruta_wkhtmltopdf") or encontrar_wkhtmltopdf()
 
         self._construir_ui()
@@ -99,7 +101,7 @@ class GeneradorLibresApp:
         ttk.Label(contenedor, text="Generador de Libres", style="Titulo.TLabel").pack(anchor="w")
         ttk.Label(
             contenedor,
-            text="Crea automaticamente los PDF de libre para las lineas con deposito 1716.",
+            text="Crea automaticamente los PDF de libre para las lineas con deposito 1716 y 1714.",
             style="Ayuda.TLabel",
         ).pack(anchor="w", pady=(0, 16))
 
@@ -122,7 +124,17 @@ class GeneradorLibresApp:
         ttk.Label(marco_fecha, text="  Formato: DD/MM/AAAA (ej: 13/06/2026)", style="Ayuda.TLabel").pack(
             side="left"
         )
-        ttk.Label(contenedor, text="", style="Ayuda.TLabel").pack(anchor="w", pady=(0, 10))
+        ttk.Checkbutton(
+            contenedor,
+            text="Incluir fechas en el PDF",
+            variable=self.incluir_fechas_var,
+            command=self._al_cambiar_incluir_fechas,
+        ).pack(anchor="w", pady=(6, 0))
+        ttk.Label(
+            contenedor,
+            text="Si lo desmarcás, el PDF sale sin llegada del barco ni fecha de vencimiento.",
+            style="Ayuda.TLabel",
+        ).pack(anchor="w", pady=(0, 10))
 
         # Paso 3: generar
         ttk.Label(contenedor, text="3. Generar los libres", style="Paso.TLabel").pack(anchor="w", pady=(0, 6))
@@ -133,7 +145,7 @@ class GeneradorLibresApp:
 
         ttk.Label(
             contenedor,
-            text="Los PDF se guardan en tu carpeta Descargas, con el numero de BL como nombre.",
+            text="Los PDF se guardan en Descargas: 1716 como BL.pdf y 1714 (contenedor) como BL CNT.pdf.",
             style="Ayuda.TLabel",
         ).pack(anchor="w", pady=(6, 12))
 
@@ -229,14 +241,21 @@ class GeneradorLibresApp:
     # ------------------------------------------------------------------
     # Generacion (en un hilo aparte para no congelar la ventana)
     # ------------------------------------------------------------------
+    def _al_cambiar_incluir_fechas(self) -> None:
+        if self.incluir_fechas_var.get():
+            self.entrada_fecha.configure(state=NORMAL)
+        else:
+            self.entrada_fecha.configure(state=DISABLED)
+
     def _al_generar(self) -> None:
         ruta_excel = self.ruta_excel_var.get().strip()
-        fecha_llegada = self.fecha_llegada_var.get().strip()
+        incluir_fechas = bool(self.incluir_fechas_var.get())
+        fecha_llegada = self.fecha_llegada_var.get().strip() if incluir_fechas else ""
 
         if not ruta_excel:
             messagebox.showwarning(APP_TITLE, "Primero selecciona el archivo Excel del manifiesto.")
             return
-        if not fecha_llegada or not self._fecha_valida(fecha_llegada):
+        if incluir_fechas and (not fecha_llegada or not self._fecha_valida(fecha_llegada)):
             messagebox.showwarning(
                 APP_TITLE, "Ingresa la fecha de llegada del barco con formato DD/MM/AAAA."
             )
@@ -255,16 +274,29 @@ class GeneradorLibresApp:
         self._log("Leyendo el Excel...")
 
         hilo = threading.Thread(
-            target=self._ejecutar_generacion, args=(ruta_excel, fecha_llegada), daemon=True
+            target=self._ejecutar_generacion,
+            args=(ruta_excel, fecha_llegada, incluir_fechas),
+            daemon=True,
         )
         hilo.start()
 
-    def _ejecutar_generacion(self, ruta_excel: str, fecha_llegada: str) -> None:
+    def _ejecutar_generacion(self, ruta_excel: str, fecha_llegada: str, incluir_fechas: bool) -> None:
         try:
             libres = leer_libres_desde_excel(ruta_excel)
             total = len(libres)
-            self.root.after(0, self._log, f"Se encontraron {total} linea(s) con deposito 1716.")
+            n_1716 = sum(1 for libre in libres if not libre.es_contenedor)
+            n_1714 = sum(1 for libre in libres if libre.es_contenedor)
+            self.root.after(
+                0,
+                self._log,
+                f"Se armaron {total} libre(s): {n_1716} de retiro TMM (1716) y {n_1714} de contenedor (1714).",
+            )
             self.root.after(0, self.progreso.configure, {"maximum": total, "value": 0})
+            self.root.after(
+                0,
+                self._log,
+                "Generando con fechas." if incluir_fechas else "Generando sin fechas.",
+            )
 
             destino = carpeta_descargas()
 
@@ -277,6 +309,7 @@ class GeneradorLibresApp:
                 fecha_llegada=fecha_llegada,
                 carpeta_destino=destino,
                 ruta_wkhtmltopdf=self.ruta_wkhtmltopdf,
+                incluir_fechas=incluir_fechas,
                 on_progreso=progreso,
             )
 

@@ -3,7 +3,8 @@ Core del Generador de Libres.
 
 Se encarga de:
   1. Leer el Excel de manifiesto.
-  2. Quedarse solo con las lineas cuyo DEPOSITO sea 1716.
+  2. Quedarse solo con las lineas cuyo DEPOSITO sea 1716 (retiro TMM)
+     o 1714 (libre de contenedor).
   3. Armar los datos de cada "libre" y generar su PDF a partir de una
      plantilla HTML (Jinja2 + wkhtmltopdf/pdfkit).
 
@@ -44,7 +45,8 @@ def _directorio_base() -> Path:
 # Configuracion / constantes
 # ---------------------------------------------------------------------------
 
-DEPOSITO_OBJETIVO = "1716"
+DEPOSITO_RETIRO_TMM = "1716"
+DEPOSITO_CONTENEDOR = "1714"
 
 # Fila de Excel (1-indexada, tal cual se ve en la planilla) donde estan los
 # titulos de columna. La fila 1 tiene el texto libre (PGD GRANDE FRANCIA...).
@@ -85,7 +87,18 @@ class Libre:
     extra2: str
     extra3: str
     fecha_vencimiento: str
+    deposito: str = DEPOSITO_RETIRO_TMM
     items: list[ItemLibre] = field(default_factory=list)
+
+    @property
+    def es_contenedor(self) -> bool:
+        return self.deposito == DEPOSITO_CONTENEDOR
+
+    @property
+    def nombre_base_archivo(self) -> str:
+        if self.es_contenedor:
+            return f"{self.bl} CNT"
+        return self.bl
 
 
 # ---------------------------------------------------------------------------
@@ -214,10 +227,60 @@ def _detectar_columnas(columnas_excel: list) -> dict[str, str]:
 # Lectura del Excel y armado de los "libres"
 # ---------------------------------------------------------------------------
 
+def _item_desde_fila(fila, columnas: dict[str, str]) -> ItemLibre:
+    cnee = _valor_celda(fila.get(columnas.get("cnee", ""), ""))
+    return ItemLibre(
+        tp=_valor_celda(fila.get(columnas.get("tp", ""), "")),
+        qty=_valor_celda(fila.get(columnas.get("qty", ""), "")),
+        descripcion=_valor_celda(fila.get(columnas.get("descripcion", ""), "")),
+        chasis=_valor_celda(fila.get(columnas.get("chasis", ""), "")),
+        cnee=cnee,
+    )
+
+
+def _libre_desde_filas(
+    filas: list,
+    extra1: str,
+    columnas: dict[str, str],
+    deposito: str,
+) -> Libre:
+    primera = filas[0]
+    bl = _valor_celda(primera.get(columnas.get("bl", ""), ""))
+    cnee = _valor_celda(primera.get(columnas.get("cnee", ""), ""))
+    fecha_venc = _formatear_fecha(
+        primera.get(columnas.get("fecha_vencimiento", ""), "")
+    )
+    return Libre(
+        bl=bl,
+        extra1=extra1,
+        extra2=bl,
+        extra3=cnee,
+        fecha_vencimiento=fecha_venc,
+        deposito=deposito,
+        items=[_item_desde_fila(fila, columnas) for fila in filas],
+    )
+
+
+def _agrupar_filas_por_bl(filas: list, columnas: dict[str, str]) -> list[list]:
+    """Agrupa filas por BL respetando el orden de primera aparicion."""
+    grupos: dict[str, list] = {}
+    orden: list[str] = []
+    for fila in filas:
+        bl = _valor_celda(fila.get(columnas.get("bl", ""), ""))
+        if bl not in grupos:
+            grupos[bl] = []
+            orden.append(bl)
+        grupos[bl].append(fila)
+    return [grupos[bl] for bl in orden]
+
+
 def leer_libres_desde_excel(ruta_excel: str | Path) -> list[Libre]:
-    """Lee el Excel, filtra DEPOSITO == 1716 y arma un Libre por cada
-    linea filtrada (cada fila 1716 es un libre independiente, tal como
-    se pidio: filas con el mismo BL simplemente comparten numero de BL)."""
+    """Lee el Excel y arma los libres segun el deposito:
+
+    - 1716 (retiro TMM): un PDF por cada fila, aunque compartan BL.
+    - 1714 (contenedor): un PDF por BL, con todas las filas de ese BL
+      juntas en la misma tabla.
+    """
 
     ruta_excel = Path(ruta_excel)
     if not ruta_excel.exists():
@@ -247,42 +310,23 @@ def leer_libres_desde_excel(ruta_excel: str | Path) -> list[Libre]:
     columnas = _detectar_columnas(list(df.columns))
 
     col_deposito = columnas["deposito"]
-    mascara_1716 = df[col_deposito].apply(
-        lambda v: _normalizar(_valor_celda(v)) == DEPOSITO_OBJETIVO
-    )
-    df_filtrado = df[mascara_1716].copy()
+    depositos = df[col_deposito].apply(lambda v: _normalizar(_valor_celda(v)))
+    df_1716 = df[depositos == DEPOSITO_RETIRO_TMM]
+    df_1714 = df[depositos == DEPOSITO_CONTENEDOR]
 
-    if df_filtrado.empty:
+    if df_1716.empty and df_1714.empty:
         raise LibreGeneratorError(
-            f"No se encontraron lineas con DEPOSITO = {DEPOSITO_OBJETIVO} en el Excel."
+            "No se encontraron lineas con DEPOSITO = 1716 ni 1714 en el Excel."
         )
 
     libres: list[Libre] = []
-    for _, fila in df_filtrado.iterrows():
-        bl = _valor_celda(fila.get(columnas.get("bl", ""), ""))
-        cnee = _valor_celda(fila.get(columnas.get("cnee", ""), ""))
-        fecha_venc = _formatear_fecha(
-            fila.get(columnas.get("fecha_vencimiento", ""), "")
-        )
 
-        item = ItemLibre(
-            tp=_valor_celda(fila.get(columnas.get("tp", ""), "")),
-            qty=_valor_celda(fila.get(columnas.get("qty", ""), "")),
-            descripcion=_valor_celda(fila.get(columnas.get("descripcion", ""), "")),
-            chasis=_valor_celda(fila.get(columnas.get("chasis", ""), "")),
-            cnee=cnee,
-        )
+    for _, fila in df_1716.iterrows():
+        libres.append(_libre_desde_filas([fila], extra1, columnas, DEPOSITO_RETIRO_TMM))
 
-        libres.append(
-            Libre(
-                bl=bl,
-                extra1=extra1,
-                extra2=bl,
-                extra3=cnee,
-                fecha_vencimiento=fecha_venc,
-                items=[item],
-            )
-        )
+    filas_1714 = [fila for _, fila in df_1714.iterrows()]
+    for grupo in _agrupar_filas_por_bl(filas_1714, columnas):
+        libres.append(_libre_desde_filas(grupo, extra1, columnas, DEPOSITO_CONTENEDOR))
 
     return libres
 
@@ -341,7 +385,11 @@ def _logo_data_uri() -> str:
     return _logo_data_uri_cache
 
 
-def renderizar_html_libre(libre: Libre, fecha_llegada: str) -> str:
+def renderizar_html_libre(
+    libre: Libre,
+    fecha_llegada: str,
+    incluir_fechas: bool = True,
+) -> str:
     env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)))
     template = env.get_template(TEMPLATE_NAME)
     return template.render(
@@ -352,6 +400,8 @@ def renderizar_html_libre(libre: Libre, fecha_llegada: str) -> str:
         fecha_llegada=fecha_llegada,
         fecha_vencimiento=libre.fecha_vencimiento,
         items=libre.items,
+        es_contenedor=libre.es_contenedor,
+        incluir_fechas=incluir_fechas,
         logo_data_uri=_logo_data_uri(),
     )
 
@@ -373,6 +423,7 @@ def generar_pdfs(
     fecha_llegada: str,
     carpeta_destino: str | Path,
     ruta_wkhtmltopdf: str,
+    incluir_fechas: bool = True,
     on_progreso: Optional[Callable[[int, int, str], None]] = None,
 ) -> list[Path]:
     """Genera un PDF por cada libre en la carpeta indicada.
@@ -397,8 +448,8 @@ def generar_pdfs(
     generados: list[Path] = []
     total = len(libres)
     for idx, libre in enumerate(libres, start=1):
-        html = renderizar_html_libre(libre, fecha_llegada)
-        destino = _nombre_archivo_disponible(carpeta_destino, libre.bl)
+        html = renderizar_html_libre(libre, fecha_llegada, incluir_fechas=incluir_fechas)
+        destino = _nombre_archivo_disponible(carpeta_destino, libre.nombre_base_archivo)
         try:
             pdfkit.from_string(html, str(destino), configuration=config, options=opciones_pdf)
         except Exception as exc:
