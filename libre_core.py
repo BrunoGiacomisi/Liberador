@@ -274,12 +274,25 @@ def _agrupar_filas_por_bl(filas: list, columnas: dict[str, str]) -> list[list]:
     return [grupos[bl] for bl in orden]
 
 
-def leer_libres_desde_excel(ruta_excel: str | Path) -> list[Libre]:
-    """Lee el Excel y arma los libres segun el deposito:
+def _libres_agrupados_por_bl(
+    df,
+    extra1: str,
+    columnas: dict[str, str],
+    deposito: str,
+) -> list[Libre]:
+    """Arma un libre por cada BL, juntando todas las filas de ese BL."""
+    filas = [fila for _, fila in df.iterrows()]
+    return [
+        _libre_desde_filas(grupo, extra1, columnas, deposito)
+        for grupo in _agrupar_filas_por_bl(filas, columnas)
+    ]
 
-    - 1716 (retiro TMM): un PDF por cada fila, aunque compartan BL.
-    - 1714 (contenedor): un PDF por BL, con todas las filas de ese BL
-      juntas en la misma tabla.
+
+def leer_libres_desde_excel(ruta_excel: str | Path) -> list[Libre]:
+    """Lee el Excel y arma los libres segun el deposito.
+
+    Tanto 1716 (retiro TMM) como 1714 (contenedor) generan un PDF por BL:
+    si hay varias filas con el mismo numero, van juntas en la misma tabla.
     """
 
     ruta_excel = Path(ruta_excel)
@@ -320,14 +333,8 @@ def leer_libres_desde_excel(ruta_excel: str | Path) -> list[Libre]:
         )
 
     libres: list[Libre] = []
-
-    for _, fila in df_1716.iterrows():
-        libres.append(_libre_desde_filas([fila], extra1, columnas, DEPOSITO_RETIRO_TMM))
-
-    filas_1714 = [fila for _, fila in df_1714.iterrows()]
-    for grupo in _agrupar_filas_por_bl(filas_1714, columnas):
-        libres.append(_libre_desde_filas(grupo, extra1, columnas, DEPOSITO_CONTENEDOR))
-
+    libres.extend(_libres_agrupados_por_bl(df_1716, extra1, columnas, DEPOSITO_RETIRO_TMM))
+    libres.extend(_libres_agrupados_por_bl(df_1714, extra1, columnas, DEPOSITO_CONTENEDOR))
     return libres
 
 

@@ -44,27 +44,25 @@ Los PDF se descargan en la carpeta **Descargas** del usuario:
 
 ### Depósito 1716 (retiro TMM)
 
-Cada línea genera un PDF independiente con:
+Todas las líneas 1716 que compartan el mismo BL van juntas en **un solo
+PDF**, con una fila de tabla por cada línea. El documento incluye:
 
 - Título: `TECNORDI SA`
 - `ENTREGUESE: <dato de la fila 1>`
-- Número de BL de la línea
-- CNEE de la línea
-- Una tabla con TP / QTY / DESCRIPCION / CHASIS / CNEE de esa línea
+- Número de BL
+- CNEE
+- Una tabla con TP / QTY / DESCRIPCION / CHASIS / CNEE (una fila por
+  cada línea del mismo BL)
 - `Retiro de la mercadería en TMM`
 - `Llegada del barco: <fecha ingresada por el usuario>`
 - `Fecha de vencimiento: <columna "FECHA LIBRE PARA RETIRO Y/O
   DEVOLUCIÓN">`
 - El texto legal fijo de TECNORDI SA
 
-Si dos líneas 1716 tienen el mismo número de BL, el segundo archivo se
-guarda como `BL_2.pdf` para no pisar al primero.
-
 ### Depósito 1714 (libre de contenedor)
 
-Todas las líneas 1714 que compartan el mismo BL van juntas en **un solo
-PDF**, con una fila de tabla por cada contenedor. El documento es igual
-al de 1716, con estas diferencias:
+Igual que 1716: todas las líneas 1714 del mismo BL van juntas en **un
+solo PDF**. El documento es igual, con estas diferencias:
 
 - Pie en rojo subrayado: `Devolución Murchison`
 - Primero `Fecha de vencimiento` y después `Llegada del barco`

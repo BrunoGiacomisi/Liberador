@@ -24,6 +24,8 @@ FILAS = [
      "WBA11G9F0794026503", "Automotres Motor Haus S.A.", "BOMPORT", "NO", "", "", "", ""],
     ["DHEAM", "UYMVD", "S329568298", "USED LM ROROUroro", "VEH", 1, "PORSCHE MACAN GTSPORSCHE",
      "WP1ZZZXAZTL251414", "Nordenwagen Uruguay Sa", 1716, "NO", 5, "17/06/2026", "", ""],
+    ["DHEAM", "UYMVD", "S329568298", "USED LM ROROUroro", "VEH", 1, "PORSCHE MACAN GTSPORSCHE",
+     "WP1ZZZXAZTL251415", "Nordenwagen Uruguay Sa", 1716, "NO", 5, "17/06/2026", "", ""],
     ["BRPNS", "BRPNS", "S329509809", "VEH", "VEH", 503, "RENAULT",
      "PENDING", "SANTA ROSA AUTOMOTORS", "DD1651", "SI", "", "", "", ""],
     ["DHEAM", "UYMVD", "S329701796", "40HC", "40HC", 1, "Consolidated Shipments stc 55 pkgs spare parts",
