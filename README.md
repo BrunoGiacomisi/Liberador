@@ -65,7 +65,7 @@ Igual que 1716: todas las líneas 1714 del mismo BL van juntas en **un
 solo PDF**. El documento es igual, con estas diferencias:
 
 - Pie en rojo subrayado: `Devolución Murchison`
-- Primero `Fecha de vencimiento` y después `Llegada del barco`
+- Las fechas van en el mismo orden que en 1716: primero llegada del barco y después vencimiento
 - Nombre de archivo: `BL CNT.pdf` (ejemplo: `S329701796 CNT.pdf`)
 
 La detección de columnas es flexible: no importa si hay pequeñas
