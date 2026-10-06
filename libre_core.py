@@ -48,6 +48,15 @@ def _directorio_base() -> Path:
 DEPOSITO_RETIRO_TMM = "1716"
 DEPOSITO_CONTENEDOR = "1714"
 
+# Dias libres contando el dia de llegada del barco. El vencimiento es el
+# ultimo de esos dias (llegada + dias - 1).
+DIAS_LIBRES_VEHICULO_MH = 5
+DIAS_LIBRES_CONTENEDOR_20_40 = 7
+
+# TP de contenedor: 20 o 40 como tamaño (20DC, 40HC, 40', etc.), no un 20
+# metido dentro de otro numero.
+_RE_CONTENEDOR_20_40 = re.compile(r"(?:^|[^0-9])(?:20|40)(?:[^0-9]|$)")
+
 # Fila de Excel (1-indexada, tal cual se ve en la planilla) donde estan los
 # titulos de columna. La fila 1 tiene el texto libre (PGD GRANDE FRANCIA...).
 FILA_ENCABEZADOS_EXCEL = 2
@@ -144,6 +153,71 @@ def _formatear_fecha(valor) -> str:
         return texto
 
 
+def dias_libres_por_tipo(tp: str) -> Optional[int]:
+    """Dias libres segun la columna TP (tipo de mercaderia).
+
+    Vehiculos (VEH) y motorhome (MH): 5 dias.
+    Contenedores de 20 y 40: 7 dias.
+    El dia de llegada del barco cuenta como dia 1.
+    """
+    tipo = _normalizar(tp)
+    if not tipo:
+        return None
+    if _RE_CONTENEDOR_20_40.search(tipo):
+        return DIAS_LIBRES_CONTENEDOR_20_40
+    if tipo == "MH" or "MOTORHOME" in tipo or "MOTOR HOME" in tipo:
+        return DIAS_LIBRES_VEHICULO_MH
+    if tipo == "VEH" or tipo.startswith("VEH") or "VEHICULO" in tipo:
+        return DIAS_LIBRES_VEHICULO_MH
+    return None
+
+
+def dias_libres_de_libre(libre: Libre) -> int:
+    """Dias libres de un libre. Todas las lineas del mismo BL tienen que coincidir."""
+    if not libre.items:
+        raise LibreGeneratorError(f"El BL '{libre.bl}' no tiene lineas para calcular el vencimiento.")
+
+    dias_distintos: list[int] = []
+    for item in libre.items:
+        dias = dias_libres_por_tipo(item.tp)
+        if dias is None:
+            tipo = item.tp.strip() if item.tp else "(vacio)"
+            raise LibreGeneratorError(
+                f"No se pudo calcular el vencimiento del BL '{libre.bl}'. "
+                f"El tipo de mercaderia '{tipo}' no es vehiculo/motorhome (VEH, MH) "
+                "ni contenedor de 20 o 40."
+            )
+        if dias not in dias_distintos:
+            dias_distintos.append(dias)
+
+    if len(dias_distintos) > 1:
+        raise LibreGeneratorError(
+            f"El BL '{libre.bl}' mezcla tipos con distintos dias libres "
+            f"({', '.join(str(d) for d in dias_distintos)}). "
+            "Tiene que ser solo vehiculos/motorhome o solo contenedores de 20 o 40."
+        )
+    return dias_distintos[0]
+
+
+def calcular_fecha_vencimiento(fecha_llegada: str, dias_libres: int) -> str:
+    """Ultimo dia libre. El dia de llegada cuenta, asi que se suman dias - 1."""
+    try:
+        llegada = pd.to_datetime(fecha_llegada, dayfirst=True, errors="raise")
+    except Exception as exc:
+        raise LibreGeneratorError(
+            f"La fecha de llegada '{fecha_llegada}' no es valida. Use DD/MM/AAAA."
+        ) from exc
+    vencimiento = llegada + pd.Timedelta(days=dias_libres - 1)
+    return vencimiento.strftime("%d/%m/%Y")
+
+
+def asignar_vencimiento_calculado(libre: Libre, fecha_llegada: str) -> str:
+    """Completa libre.fecha_vencimiento a partir de la llegada y el tipo (TP)."""
+    dias = dias_libres_de_libre(libre)
+    libre.fecha_vencimiento = calcular_fecha_vencimiento(fecha_llegada, dias)
+    return libre.fecha_vencimiento
+
+
 def extraer_encabezado_hasta_cuatro_digitos(texto: str) -> str:
     """A partir del texto libre de la fila 1 del Excel, devuelve todo hasta
     (e incluyendo) la primera serie de exactamente 4 numeros que aparezca.
@@ -211,13 +285,13 @@ def _detectar_columnas(columnas_excel: list) -> dict[str, str]:
         if encontrada is not None:
             resultado[logico] = encontrada
 
-    faltantes = [c for c in ("deposito", "bl", "cnee") if c not in resultado]
+    faltantes = [c for c in ("deposito", "bl", "cnee", "tp") if c not in resultado]
     if faltantes:
         raise LibreGeneratorError(
             "No se pudieron identificar en el Excel las columnas: "
             + ", ".join(faltantes)
             + ". Revisa que la fila 2 tenga los titulos correctos "
-            "(por ejemplo: BL, DEPOSITO, CNEE)."
+            "(por ejemplo: BL, TP, DEPOSITO, CNEE)."
         )
 
     return resultado
@@ -451,6 +525,10 @@ def generar_pdfs(
         "margin-left": "22mm",
         "margin-right": "22mm",
     }
+
+    if incluir_fechas:
+        for libre in libres:
+            asignar_vencimiento_calculado(libre, fecha_llegada)
 
     generados: list[Path] = []
     total = len(libres)

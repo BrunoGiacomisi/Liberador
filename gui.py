@@ -19,7 +19,20 @@ import re
 import threading
 import webbrowser
 from pathlib import Path
-from tkinter import Tk, StringVar, BooleanVar, filedialog, messagebox, ttk, END, DISABLED, NORMAL, WORD
+from tkinter import (
+    Tk,
+    StringVar,
+    BooleanVar,
+    PhotoImage,
+    Checkbutton,
+    filedialog,
+    messagebox,
+    ttk,
+    END,
+    DISABLED,
+    NORMAL,
+    WORD,
+)
 from tkinter.scrolledtext import ScrolledText
 
 from libre_core import (
@@ -39,6 +52,31 @@ WKHTMLTOPDF_DESCARGA_URL = "https://wkhtmltopdf.org/downloads.html"
 COLOR_FONDO = "#f4f6f8"
 COLOR_PRIMARIO = "#1f3864"
 COLOR_TEXTO = "#1f2937"
+COLOR_TILDE = "#15803d"
+
+
+def _imagen_casilla(marcada: bool) -> PhotoImage:
+    """Casilla de 18 px: vacia, o con tilde verde cuando esta marcada."""
+    lado = 18
+    img = PhotoImage(width=lado, height=lado)
+    img.put("#ffffff", to=(0, 0, lado, lado))
+    borde = COLOR_TILDE if marcada else "#9ca3af"
+    img.put(borde, to=(0, 0, lado, 2))
+    img.put(borde, to=(0, lado - 2, lado, lado))
+    img.put(borde, to=(0, 0, 2, lado))
+    img.put(borde, to=(lado - 2, 0, lado, lado))
+    if not marcada:
+        return img
+    # Trazo grueso: baja a la derecha y sube hasta la punta.
+    puntos = [
+        (3, 8), (4, 9), (5, 10), (6, 11), (7, 12),
+        (3, 9), (4, 10), (5, 11), (6, 12), (7, 13),
+        (8, 12), (9, 11), (10, 10), (11, 9), (12, 8), (13, 7), (14, 6),
+        (8, 11), (9, 10), (10, 9), (11, 8), (12, 7), (13, 6), (14, 5),
+    ]
+    for x, y in puntos:
+        img.put(COLOR_TILDE, to=(x, y, x + 1, y + 1))
+    return img
 
 
 def _cargar_config() -> dict:
@@ -124,16 +162,43 @@ class GeneradorLibresApp:
         ttk.Label(marco_fecha, text="  Formato: DD/MM/AAAA (ej: 13/06/2026)", style="Ayuda.TLabel").pack(
             side="left"
         )
-        ttk.Checkbutton(
+        self._img_casilla_off = _imagen_casilla(False)
+        self._img_casilla_on = _imagen_casilla(True)
+        Checkbutton(
             contenedor,
             text="Incluir fechas en el PDF",
             variable=self.incluir_fechas_var,
             command=self._al_cambiar_incluir_fechas,
+            image=self._img_casilla_off,
+            selectimage=self._img_casilla_on,
+            compound="left",
+            indicatoron=False,
+            bd=0,
+            highlightthickness=0,
+            relief="flat",
+            offrelief="flat",
+            overrelief="flat",
+            bg=COLOR_FONDO,
+            activebackground=COLOR_FONDO,
+            fg=COLOR_TEXTO,
+            activeforeground=COLOR_TEXTO,
+            font=("Segoe UI", 10),
+            padx=0,
+            pady=2,
         ).pack(anchor="w", pady=(6, 0))
         ttk.Label(
             contenedor,
             text="Si lo desmarcás, el PDF sale sin llegada del barco ni fecha de vencimiento.",
             style="Ayuda.TLabel",
+        ).pack(anchor="w")
+        ttk.Label(
+            contenedor,
+            text=(
+                "El vencimiento se calcula solo, contando el día de llegada: "
+                "5 días para vehículos y motorhome (MH), 7 días para contenedores de 20 y 40."
+            ),
+            style="Ayuda.TLabel",
+            wraplength=540,
         ).pack(anchor="w", pady=(0, 10))
 
         # Paso 3: generar
@@ -295,7 +360,10 @@ class GeneradorLibresApp:
             self.root.after(
                 0,
                 self._log,
-                "Generando con fechas." if incluir_fechas else "Generando sin fechas.",
+                "Generando con fechas. El vencimiento se calcula desde la llegada: "
+                "5 dias vehiculos y motorhome, 7 dias contenedores de 20 y 40."
+                if incluir_fechas
+                else "Generando sin fechas.",
             )
 
             destino = carpeta_descargas()
