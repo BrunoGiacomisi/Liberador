@@ -121,7 +121,9 @@
     {% endif %}
     {% if incluir_fechas %}
     <div class="fecha-linea">Llegada del barco: {{ fecha_llegada }}</div>
+    {% if fecha_vencimiento %}
     <div class="fecha-linea">Fecha de vencimiento: {{ fecha_vencimiento }}</div>
+    {% endif %}
     {% endif %}
 
     <div class="bloque-aclaraciones">

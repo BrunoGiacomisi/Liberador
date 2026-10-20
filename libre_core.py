@@ -156,9 +156,10 @@ def _formatear_fecha(valor) -> str:
 def dias_libres_por_tipo(tp: str) -> Optional[int]:
     """Dias libres segun la columna TP (tipo de mercaderia).
 
-    Vehiculos (VEH) y motorhome (MH): 5 dias.
+    Vehiculos (VEH), motorhome (MH) y maquinas (MAQ): 5 dias.
     Contenedores de 20 y 40: 7 dias.
     El dia de llegada del barco cuenta como dia 1.
+    Cualquier otro tipo no parametrizado devuelve None: sin vencimiento.
     """
     tipo = _normalizar(tp)
     if not tipo:
@@ -169,27 +170,39 @@ def dias_libres_por_tipo(tp: str) -> Optional[int]:
         return DIAS_LIBRES_VEHICULO_MH
     if tipo == "VEH" or tipo.startswith("VEH") or "VEHICULO" in tipo:
         return DIAS_LIBRES_VEHICULO_MH
+    if tipo == "MAQ" or tipo.startswith("MAQ") or "MAQUINA" in tipo:
+        return DIAS_LIBRES_VEHICULO_MH
     return None
 
 
-def dias_libres_de_libre(libre: Libre) -> int:
-    """Dias libres de un libre. Todas las lineas del mismo BL tienen que coincidir."""
+def dias_libres_de_libre(libre: Libre) -> Optional[int]:
+    """Dias libres de un libre. None si el tipo no esta parametrizado (sin vencimiento).
+
+    Todas las lineas del mismo BL tienen que coincidir: o todas con la misma
+    cantidad de dias, o todas sin vencimiento.
+    """
     if not libre.items:
         raise LibreGeneratorError(f"El BL '{libre.bl}' no tiene lineas para calcular el vencimiento.")
 
     dias_distintos: list[int] = []
+    hay_sin_vencimiento = False
     for item in libre.items:
         dias = dias_libres_por_tipo(item.tp)
         if dias is None:
-            tipo = item.tp.strip() if item.tp else "(vacio)"
-            raise LibreGeneratorError(
-                f"No se pudo calcular el vencimiento del BL '{libre.bl}'. "
-                f"El tipo de mercaderia '{tipo}' no es vehiculo/motorhome (VEH, MH) "
-                "ni contenedor de 20 o 40."
-            )
+            hay_sin_vencimiento = True
+            continue
         if dias not in dias_distintos:
             dias_distintos.append(dias)
 
+    if hay_sin_vencimiento and dias_distintos:
+        raise LibreGeneratorError(
+            f"El BL '{libre.bl}' mezcla mercaderia con fecha de vencimiento "
+            "y mercaderia sin vencimiento (tipo no parametrizado). "
+            "Tiene que ser solo vehiculos/motorhome, solo contenedores de 20 o 40, "
+            "o solo tipos sin dias libres definidos."
+        )
+    if hay_sin_vencimiento:
+        return None
     if len(dias_distintos) > 1:
         raise LibreGeneratorError(
             f"El BL '{libre.bl}' mezcla tipos con distintos dias libres "
@@ -212,8 +225,15 @@ def calcular_fecha_vencimiento(fecha_llegada: str, dias_libres: int) -> str:
 
 
 def asignar_vencimiento_calculado(libre: Libre, fecha_llegada: str) -> str:
-    """Completa libre.fecha_vencimiento a partir de la llegada y el tipo (TP)."""
+    """Completa libre.fecha_vencimiento a partir de la llegada y el tipo (TP).
+
+    Los tipos no parametrizados quedan sin fecha de vencimiento.
+    Las maquinas (MAQ) tienen 5 dias, igual que vehiculos y motorhome.
+    """
     dias = dias_libres_de_libre(libre)
+    if dias is None:
+        libre.fecha_vencimiento = ""
+        return ""
     libre.fecha_vencimiento = calcular_fecha_vencimiento(fecha_llegada, dias)
     return libre.fecha_vencimiento
 
@@ -324,6 +344,12 @@ def _libre_desde_filas(
     fecha_venc = _formatear_fecha(
         primera.get(columnas.get("fecha_vencimiento", ""), "")
     )
+    items = [_item_desde_fila(fila, columnas) for fila in filas]
+    # En contenedores, varias lineas del mismo BL son unidades distintas:
+    # cada una va en su fila, con cantidad 1 y sus propios datos.
+    if deposito == DEPOSITO_CONTENEDOR and len(items) > 1:
+        for item in items:
+            item.qty = "1"
     return Libre(
         bl=bl,
         extra1=extra1,
@@ -331,7 +357,7 @@ def _libre_desde_filas(
         extra3=cnee,
         fecha_vencimiento=fecha_venc,
         deposito=deposito,
-        items=[_item_desde_fila(fila, columnas) for fila in filas],
+        items=items,
     )
 
 
@@ -362,11 +388,64 @@ def _libres_agrupados_por_bl(
     ]
 
 
+def filtrar_libres_por_bl(libres: list[Libre], bl: str) -> list[Libre]:
+    """Deja solo el libre cuyo numero de BL coincide con el indicado."""
+    buscado = _normalizar(bl)
+    if not buscado:
+        raise LibreGeneratorError("Ingresa el numero de BL.")
+    coinciden = [libre for libre in libres if _normalizar(libre.bl) == buscado]
+    if not coinciden:
+        raise LibreGeneratorError(
+            f"No se encontro el BL '{bl.strip()}' entre las lineas con deposito 1716 o 1714."
+        )
+    return coinciden
+
+
+def _leer_tabla_excel(ruta_excel: Path) -> pd.DataFrame:
+    """Lee la tabla de datos (titulos en FILA_ENCABEZADOS_EXCEL) de la primera hoja.
+
+    Las celdas combinadas se repiten en cada fila que cubren: si BL, DEPOSITO
+    o QTY estan combinados entre dos contenedores, la segunda fila no queda
+    vacia (si no, se descarta por no tener deposito).
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(ruta_excel, data_only=True)
+    try:
+        ws = wb.worksheets[0]
+        filas = [list(fila) for fila in ws.iter_rows(values_only=True)]
+        for rango in ws.merged_cells.ranges:
+            if rango.min_row <= FILA_ENCABEZADOS_EXCEL:
+                continue
+            valor = filas[rango.min_row - 1][rango.min_col - 1]
+            for r in range(rango.min_row, rango.max_row + 1):
+                for c in range(rango.min_col, rango.max_col + 1):
+                    filas[r - 1][c - 1] = valor
+    finally:
+        wb.close()
+
+    if len(filas) < FILA_ENCABEZADOS_EXCEL:
+        return pd.DataFrame()
+
+    encabezados: list[str] = []
+    for idx, titulo in enumerate(filas[FILA_ENCABEZADOS_EXCEL - 1]):
+        nombre = _valor_celda(titulo) or f"Unnamed: {idx}"
+        base, n = nombre, 1
+        while nombre in encabezados:
+            nombre = f"{base}.{n}"
+            n += 1
+        encabezados.append(nombre)
+
+    return pd.DataFrame(filas[FILA_ENCABEZADOS_EXCEL:], columns=encabezados)
+
+
 def leer_libres_desde_excel(ruta_excel: str | Path) -> list[Libre]:
     """Lee el Excel y arma los libres segun el deposito.
 
     Tanto 1716 (retiro TMM) como 1714 (contenedor) generan un PDF por BL:
     si hay varias filas con el mismo numero, van juntas en la misma tabla.
+    En contenedores, cada una de esas filas queda con cantidad 1 y sus
+    propios datos (no se reemplaza por una sola linea con la cantidad total).
     """
 
     ruta_excel = Path(ruta_excel)
@@ -384,9 +463,7 @@ def leer_libres_desde_excel(ruta_excel: str | Path) -> list[Libre]:
     extra1 = extraer_encabezado_hasta_cuatro_digitos(texto_fila1)
 
     try:
-        df = pd.read_excel(
-            ruta_excel, header=FILA_ENCABEZADOS_EXCEL - 1, engine="openpyxl"
-        )
+        df = _leer_tabla_excel(ruta_excel)
     except Exception as exc:
         raise LibreGeneratorError(f"No se pudo leer el Excel: {exc}") from exc
 

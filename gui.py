@@ -41,6 +41,7 @@ from libre_core import (
     encontrar_wkhtmltopdf,
     generar_pdfs,
     leer_libres_desde_excel,
+    filtrar_libres_por_bl,
 )
 
 APP_TITLE = "Generador de Libres - TECNORDI SA"
@@ -98,13 +99,14 @@ class GeneradorLibresApp:
     def __init__(self, root: Tk):
         self.root = root
         self.root.title(APP_TITLE)
-        self.root.geometry("620x600")
-        self.root.minsize(560, 560)
+        self.root.geometry("620x700")
+        self.root.minsize(560, 640)
         self.root.configure(bg=COLOR_FONDO)
 
         self.config_usuario = _cargar_config()
         self.ruta_excel_var = StringVar(value="")
         self.fecha_llegada_var = StringVar(value="")
+        self.bl_var = StringVar(value="")
         self.incluir_fechas_var = BooleanVar(value=True)
         self.ruta_wkhtmltopdf = self.config_usuario.get("ruta_wkhtmltopdf") or encontrar_wkhtmltopdf()
 
@@ -195,7 +197,9 @@ class GeneradorLibresApp:
             contenedor,
             text=(
                 "El vencimiento se calcula solo, contando el día de llegada: "
-                "5 días para vehículos y motorhome (MH), 7 días para contenedores de 20 y 40."
+                "5 días para vehículos, motorhome (MH) y máquinas (MAQ), "
+                "7 días para contenedores de 20 y 40. "
+                "Cualquier otro tipo sale sin fecha de vencimiento."
             ),
             style="Ayuda.TLabel",
             wraplength=540,
@@ -204,9 +208,24 @@ class GeneradorLibresApp:
         # Paso 3: generar
         ttk.Label(contenedor, text="3. Generar los libres", style="Paso.TLabel").pack(anchor="w", pady=(0, 6))
         self.boton_generar = ttk.Button(
-            contenedor, text="Generar libres", style="Generar.TButton", command=self._al_generar
+            contenedor, text="Generar libres", style="Generar.TButton", command=self._al_generar_todos
         )
         self.boton_generar.pack(fill="x")
+
+        marco_bl = ttk.Frame(contenedor)
+        marco_bl.pack(fill="x", pady=(8, 0))
+        ttk.Label(marco_bl, text="BL").pack(side="left")
+        self.entrada_bl = ttk.Entry(marco_bl, textvariable=self.bl_var)
+        self.entrada_bl.pack(side="left", fill="x", expand=True, padx=(8, 8), ipady=3)
+        self.boton_generar_bl = ttk.Button(
+            marco_bl, text="Generar este BL", command=self._al_generar_un_bl
+        )
+        self.boton_generar_bl.pack(side="left")
+        ttk.Label(
+            contenedor,
+            text="Genera un solo PDF. Escribi el numero de BL y apreta \"Generar este BL\".",
+            style="Ayuda.TLabel",
+        ).pack(anchor="w", pady=(4, 0))
 
         ttk.Label(
             contenedor,
@@ -312,7 +331,17 @@ class GeneradorLibresApp:
         else:
             self.entrada_fecha.configure(state=DISABLED)
 
-    def _al_generar(self) -> None:
+    def _al_generar_todos(self) -> None:
+        self._iniciar_generacion("")
+
+    def _al_generar_un_bl(self) -> None:
+        bl = self.bl_var.get().strip()
+        if not bl:
+            messagebox.showwarning(APP_TITLE, "Ingresa el numero de BL que queres generar.")
+            return
+        self._iniciar_generacion(bl)
+
+    def _iniciar_generacion(self, bl: str) -> None:
         ruta_excel = self.ruta_excel_var.get().strip()
         incluir_fechas = bool(self.incluir_fechas_var.get())
         fecha_llegada = self.fecha_llegada_var.get().strip() if incluir_fechas else ""
@@ -333,21 +362,33 @@ class GeneradorLibresApp:
             )
             return
 
-        self.boton_generar.configure(state=DISABLED)
+        self._set_generando(True)
         self._limpiar_log()
         self.progreso.configure(value=0, maximum=100)
-        self._log("Leyendo el Excel...")
+        if bl:
+            self._log(f"Leyendo el Excel para el BL {bl}...")
+        else:
+            self._log("Leyendo el Excel...")
 
         hilo = threading.Thread(
             target=self._ejecutar_generacion,
-            args=(ruta_excel, fecha_llegada, incluir_fechas),
+            args=(ruta_excel, fecha_llegada, incluir_fechas, bl),
             daemon=True,
         )
         hilo.start()
 
-    def _ejecutar_generacion(self, ruta_excel: str, fecha_llegada: str, incluir_fechas: bool) -> None:
+    def _set_generando(self, generando: bool) -> None:
+        estado = DISABLED if generando else NORMAL
+        self.boton_generar.configure(state=estado)
+        self.boton_generar_bl.configure(state=estado)
+
+    def _ejecutar_generacion(
+        self, ruta_excel: str, fecha_llegada: str, incluir_fechas: bool, bl: str
+    ) -> None:
         try:
             libres = leer_libres_desde_excel(ruta_excel)
+            if bl:
+                libres = filtrar_libres_por_bl(libres, bl)
             total = len(libres)
             n_1716 = sum(1 for libre in libres if not libre.es_contenedor)
             n_1714 = sum(1 for libre in libres if libre.es_contenedor)
@@ -361,7 +402,8 @@ class GeneradorLibresApp:
                 0,
                 self._log,
                 "Generando con fechas. El vencimiento se calcula desde la llegada: "
-                "5 dias vehiculos y motorhome, 7 dias contenedores de 20 y 40."
+                "5 dias vehiculos, motorhome y maquinas, 7 dias contenedores de 20 y 40. "
+                "Cualquier otro tipo sale sin vencimiento."
                 if incluir_fechas
                 else "Generando sin fechas.",
             )
@@ -389,14 +431,14 @@ class GeneradorLibresApp:
 
     def _al_finalizar_ok(self, cantidad: int, carpeta: str) -> None:
         self._log(f"Listo. Se generaron {cantidad} libre(s) en: {carpeta}")
-        self.boton_generar.configure(state=NORMAL)
+        self._set_generando(False)
         messagebox.showinfo(
             APP_TITLE, f"Se generaron {cantidad} libre(s) en tu carpeta Descargas."
         )
 
     def _al_finalizar_error(self, mensaje: str) -> None:
         self._log(f"ERROR: {mensaje}")
-        self.boton_generar.configure(state=NORMAL)
+        self._set_generando(False)
         messagebox.showerror(APP_TITLE, mensaje)
 
 

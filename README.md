@@ -56,8 +56,9 @@ PDF**, con una fila de tabla por cada línea. El documento incluye:
 - `Retiro de la mercadería en TMM`
 - `Llegada del barco: <fecha ingresada por el usuario>`
 - `Fecha de vencimiento: calculada desde la llegada, contando ese día.
-  Vehículos (VEH) y motorhome (MH), columna TP: 5 días.
-  Contenedores de 20 y 40 (columna TP, por ejemplo 20DC o 40HC): 7 días.`
+  Vehículos (VEH), motorhome (MH) y máquinas (MAQ), columna TP: 5 días.
+  Contenedores de 20 y 40 (columna TP, por ejemplo 20DC o 40HC): 7 días.
+  Cualquier otro tipo: el PDF sale sin fecha de vencimiento.`
 - El texto legal fijo de TECNORDI SA
 
 ### Depósito 1714 (libre de contenedor)
