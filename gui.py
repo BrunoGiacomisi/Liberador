@@ -2,7 +2,7 @@
 Interfaz grafica del Generador de Libres (TECNORDI SA).
 
 Pensada para usuarios sin conocimientos tecnicos:
-  1. Elegir el Excel del manifiesto.
+  1. Elegir el Excel de la planilla de facturacion.
   2. Ingresar la fecha de llegada del barco.
   3. Apretar "Generar libres".
 
@@ -21,6 +21,9 @@ import webbrowser
 from pathlib import Path
 from tkinter import (
     Tk,
+    Toplevel,
+    Frame,
+    Label,
     StringVar,
     BooleanVar,
     PhotoImage,
@@ -36,8 +39,10 @@ from tkinter import (
 from tkinter.scrolledtext import ScrolledText
 
 from libre_core import (
+    CondicionesAlmacenaje,
     LibreGeneratorError,
     carpeta_descargas,
+    condiciones_desde_dict,
     encontrar_wkhtmltopdf,
     generar_pdfs,
     leer_libres_desde_excel,
@@ -50,10 +55,17 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 
 WKHTMLTOPDF_DESCARGA_URL = "https://wkhtmltopdf.org/downloads.html"
 
-COLOR_FONDO = "#f4f6f8"
-COLOR_PRIMARIO = "#1f3864"
+COLOR_FONDO = "#eef1f5"
+COLOR_TARJETA = "#ffffff"
+COLOR_BORDE = "#dbe1e8"
+COLOR_PRIMARIO = "#4a6fa5"
+COLOR_PRIMARIO_HOVER = "#3f6194"
+COLOR_PRIMARIO_DESACTIVADO = "#aebdd3"
+COLOR_SUBTITULO = "#e1e8f3"
 COLOR_TEXTO = "#1f2937"
+COLOR_TEXTO_SUAVE = "#6b7280"
 COLOR_TILDE = "#15803d"
+FUENTE = "Segoe UI"
 
 
 def _imagen_casilla(marcada: bool) -> PhotoImage:
@@ -99,8 +111,8 @@ class GeneradorLibresApp:
     def __init__(self, root: Tk):
         self.root = root
         self.root.title(APP_TITLE)
-        self.root.geometry("620x700")
-        self.root.minsize(560, 640)
+        self.root.geometry("640x660")
+        self.root.minsize(580, 620)
         self.root.configure(bg=COLOR_FONDO)
 
         self.config_usuario = _cargar_config()
@@ -109,6 +121,7 @@ class GeneradorLibresApp:
         self.bl_var = StringVar(value="")
         self.incluir_fechas_var = BooleanVar(value=True)
         self.ruta_wkhtmltopdf = self.config_usuario.get("ruta_wkhtmltopdf") or encontrar_wkhtmltopdf()
+        self.condiciones = condiciones_desde_dict(self.config_usuario.get("condiciones_almacenaje"))
 
         self._construir_ui()
         self._actualizar_estado_wkhtmltopdf()
@@ -116,59 +129,191 @@ class GeneradorLibresApp:
     # ------------------------------------------------------------------
     # Construccion de la interfaz
     # ------------------------------------------------------------------
-    def _construir_ui(self) -> None:
+    def _configurar_estilos(self) -> None:
         estilo = ttk.Style()
         try:
             estilo.theme_use("clam")
         except Exception:
             pass
+
+        estilo.configure(".", font=(FUENTE, 10))
         estilo.configure("TFrame", background=COLOR_FONDO)
-        estilo.configure("TLabel", background=COLOR_FONDO, foreground=COLOR_TEXTO, font=("Segoe UI", 10))
-        estilo.configure("Titulo.TLabel", font=("Segoe UI", 15, "bold"), foreground=COLOR_PRIMARIO)
-        estilo.configure("Paso.TLabel", font=("Segoe UI", 10, "bold"), foreground=COLOR_PRIMARIO)
-        estilo.configure("Ayuda.TLabel", font=("Segoe UI", 8), foreground="#6b7280")
-        estilo.configure("Estado.TLabel", font=("Segoe UI", 8))
-        estilo.configure("TButton", font=("Segoe UI", 10), padding=6)
+        estilo.configure("Tarjeta.TFrame", background=COLOR_TARJETA)
+        estilo.configure("TLabel", background=COLOR_FONDO, foreground=COLOR_TEXTO, font=(FUENTE, 10))
+        estilo.configure("Tarjeta.TLabel", background=COLOR_TARJETA, foreground=COLOR_TEXTO)
         estilo.configure(
-            "Generar.TButton",
-            font=("Segoe UI", 11, "bold"),
-            padding=10,
+            "Codigo.TLabel", background=COLOR_TARJETA, foreground=COLOR_PRIMARIO, font=(FUENTE, 10, "bold")
+        )
+        estilo.configure(
+            "Paso.TLabel", background=COLOR_TARJETA, foreground=COLOR_PRIMARIO, font=(FUENTE, 11, "bold")
+        )
+        estilo.configure(
+            "Ayuda.TLabel", background=COLOR_TARJETA, foreground=COLOR_TEXTO_SUAVE, font=(FUENTE, 9)
+        )
+        estilo.configure(
+            "Seccion.TLabel", background=COLOR_FONDO, foreground=COLOR_PRIMARIO, font=(FUENTE, 10, "bold")
+        )
+        estilo.configure("Pie.TLabel", background=COLOR_FONDO, foreground=COLOR_TEXTO_SUAVE, font=(FUENTE, 8))
+
+        estilo.configure(
+            "TEntry",
+            padding=(8, 5),
+            fieldbackground=COLOR_TARJETA,
+            bordercolor=COLOR_BORDE,
+            lightcolor=COLOR_BORDE,
+            darkcolor=COLOR_BORDE,
+        )
+        estilo.map(
+            "TEntry",
+            bordercolor=[("focus", COLOR_PRIMARIO)],
+            lightcolor=[("focus", COLOR_PRIMARIO)],
+            fieldbackground=[("disabled", "#f3f4f6"), ("readonly", "#f8fafc")],
+            foreground=[("disabled", "#9ca3af")],
         )
 
-        contenedor = ttk.Frame(self.root, padding=20)
+        estilo.configure(
+            "TButton",
+            padding=(12, 6),
+            background=COLOR_TARJETA,
+            foreground=COLOR_TEXTO,
+            bordercolor=COLOR_BORDE,
+            lightcolor=COLOR_TARJETA,
+            darkcolor=COLOR_TARJETA,
+            focuscolor=COLOR_TARJETA,
+        )
+        estilo.map(
+            "TButton",
+            background=[("disabled", "#f3f4f6"), ("pressed", "#e5e7eb"), ("active", "#f1f4f8")],
+            lightcolor=[("active", "#f1f4f8")],
+            darkcolor=[("active", "#f1f4f8")],
+            foreground=[("disabled", "#9ca3af")],
+        )
+
+        for nombre, fuente, relleno in (
+            ("Primario.TButton", (FUENTE, 12, "bold"), (12, 8)),
+            ("Accion.TButton", (FUENTE, 10, "bold"), (14, 6)),
+        ):
+            estilo.configure(
+                nombre,
+                font=fuente,
+                padding=relleno,
+                background=COLOR_PRIMARIO,
+                foreground="white",
+                bordercolor=COLOR_PRIMARIO,
+                lightcolor=COLOR_PRIMARIO,
+                darkcolor=COLOR_PRIMARIO,
+                focuscolor=COLOR_PRIMARIO,
+            )
+            estilo.map(
+                nombre,
+                background=[("disabled", COLOR_PRIMARIO_DESACTIVADO), ("active", COLOR_PRIMARIO_HOVER)],
+                bordercolor=[("disabled", COLOR_PRIMARIO_DESACTIVADO), ("active", COLOR_PRIMARIO_HOVER)],
+                lightcolor=[("disabled", COLOR_PRIMARIO_DESACTIVADO), ("active", COLOR_PRIMARIO_HOVER)],
+                darkcolor=[("disabled", COLOR_PRIMARIO_DESACTIVADO), ("active", COLOR_PRIMARIO_HOVER)],
+                foreground=[("disabled", "white")],
+            )
+
+        estilo.configure(
+            "Enlace.TButton",
+            font=(FUENTE, 8, "underline"),
+            padding=(4, 2),
+            background=COLOR_FONDO,
+            foreground=COLOR_PRIMARIO,
+            bordercolor=COLOR_FONDO,
+            lightcolor=COLOR_FONDO,
+            darkcolor=COLOR_FONDO,
+            focuscolor=COLOR_FONDO,
+        )
+        estilo.map(
+            "Enlace.TButton",
+            background=[("active", COLOR_FONDO)],
+            foreground=[("active", COLOR_PRIMARIO_HOVER)],
+        )
+
+        estilo.configure(
+            "Horizontal.TProgressbar",
+            thickness=6,
+            troughcolor="#e2e7ee",
+            background=COLOR_PRIMARIO,
+            bordercolor="#e2e7ee",
+            lightcolor=COLOR_PRIMARIO,
+            darkcolor=COLOR_PRIMARIO,
+        )
+        estilo.configure("Tarjeta.TSeparator", background=COLOR_BORDE)
+
+    def _tarjeta(self, padre, numero: int, titulo: str) -> tuple[ttk.Frame, ttk.Frame]:
+        """Seccion blanca con borde fino y titulo numerado. Devuelve (cuerpo, cabecera)."""
+        borde = Frame(padre, bg=COLOR_BORDE)
+        borde.pack(fill="x", pady=(0, 10))
+        cuerpo = ttk.Frame(borde, style="Tarjeta.TFrame", padding=(16, 10, 16, 12))
+        cuerpo.pack(fill="both", expand=True, padx=1, pady=1)
+
+        cabecera = ttk.Frame(cuerpo, style="Tarjeta.TFrame")
+        cabecera.pack(fill="x", pady=(0, 8))
+        Label(
+            cabecera,
+            text=str(numero),
+            bg=COLOR_PRIMARIO,
+            fg="white",
+            font=(FUENTE, 9, "bold"),
+            width=2,
+        ).pack(side="left")
+        ttk.Label(cabecera, text=titulo, style="Paso.TLabel").pack(side="left", padx=(10, 0))
+        return cuerpo, cabecera
+
+    def _construir_ui(self) -> None:
+        self._configurar_estilos()
+
+        # Cabecera
+        cabecera = Frame(self.root, bg=COLOR_PRIMARIO)
+        cabecera.pack(fill="x")
+        Label(
+            cabecera,
+            text="Generador de Libres",
+            bg=COLOR_PRIMARIO,
+            fg="white",
+            font=(FUENTE, 15, "bold"),
+        ).pack(anchor="w", padx=22, pady=(10, 0))
+        Label(
+            cabecera,
+            text="TECNORDI SA  ·  PDF de libre para depósitos 1716 y 1714",
+            bg=COLOR_PRIMARIO,
+            fg=COLOR_SUBTITULO,
+            font=(FUENTE, 9),
+        ).pack(anchor="w", padx=22, pady=(0, 10))
+
+        contenedor = ttk.Frame(self.root, padding=(18, 12, 18, 8))
         contenedor.pack(fill="both", expand=True)
 
-        ttk.Label(contenedor, text="Generador de Libres", style="Titulo.TLabel").pack(anchor="w")
-        ttk.Label(
-            contenedor,
-            text="Crea automaticamente los PDF de libre para las lineas con deposito 1716 y 1714.",
-            style="Ayuda.TLabel",
-        ).pack(anchor="w", pady=(0, 16))
-
         # Paso 1: Excel
-        ttk.Label(contenedor, text="1. Archivo Excel del manifiesto", style="Paso.TLabel").pack(anchor="w")
-        marco_excel = ttk.Frame(contenedor)
-        marco_excel.pack(fill="x", pady=(4, 4))
+        paso1, _ = self._tarjeta(contenedor, 1, "Archivo Excel de la planilla de facturación")
+        marco_excel = ttk.Frame(paso1, style="Tarjeta.TFrame")
+        marco_excel.pack(fill="x")
         self.entrada_excel = ttk.Entry(marco_excel, textvariable=self.ruta_excel_var, state="readonly")
-        self.entrada_excel.pack(side="left", fill="x", expand=True, ipady=3)
-        ttk.Button(marco_excel, text="Seleccionar...", command=self._elegir_excel).pack(side="left", padx=(8, 0))
-
-        ttk.Label(contenedor, text="", style="Ayuda.TLabel").pack(anchor="w", pady=(0, 10))
+        self.entrada_excel.pack(side="left", fill="x", expand=True)
+        ttk.Button(marco_excel, text="Seleccionar...", command=self._elegir_excel).pack(
+            side="left", padx=(8, 0)
+        )
 
         # Paso 2: fecha
-        ttk.Label(contenedor, text="2. Llegada del barco", style="Paso.TLabel").pack(anchor="w")
-        marco_fecha = ttk.Frame(contenedor)
-        marco_fecha.pack(fill="x", pady=(4, 2))
-        self.entrada_fecha = ttk.Entry(marco_fecha, textvariable=self.fecha_llegada_var, width=16)
-        self.entrada_fecha.pack(side="left", ipady=3)
-        ttk.Label(marco_fecha, text="  Formato: DD/MM/AAAA (ej: 13/06/2026)", style="Ayuda.TLabel").pack(
-            side="left"
+        paso2, cabecera_paso2 = self._tarjeta(contenedor, 2, "Llegada del barco")
+        ttk.Button(
+            cabecera_paso2, text="Días de almacenaje", command=self._editar_condiciones
+        ).pack(side="right")
+        marco_fecha = ttk.Frame(paso2, style="Tarjeta.TFrame")
+        marco_fecha.pack(fill="x")
+        self.entrada_fecha = ttk.Entry(
+            marco_fecha, textvariable=self.fecha_llegada_var, width=14, font=(FUENTE, 10)
+        )
+        self.entrada_fecha.pack(side="left")
+        ttk.Label(marco_fecha, text="DD/MM/AAAA  (ej: 13/06/2026)", style="Ayuda.TLabel").pack(
+            side="left", padx=(10, 0)
         )
         self._img_casilla_off = _imagen_casilla(False)
         self._img_casilla_on = _imagen_casilla(True)
         Checkbutton(
-            contenedor,
-            text="Incluir fechas en el PDF",
+            paso2,
+            text="  Incluir fechas en el PDF",
             variable=self.incluir_fechas_var,
             command=self._al_cambiar_incluir_fechas,
             image=self._img_casilla_off,
@@ -180,77 +325,87 @@ class GeneradorLibresApp:
             relief="flat",
             offrelief="flat",
             overrelief="flat",
-            bg=COLOR_FONDO,
-            activebackground=COLOR_FONDO,
+            bg=COLOR_TARJETA,
+            activebackground=COLOR_TARJETA,
+            selectcolor=COLOR_TARJETA,
             fg=COLOR_TEXTO,
             activeforeground=COLOR_TEXTO,
-            font=("Segoe UI", 10),
+            font=(FUENTE, 10),
+            cursor="hand2",
             padx=0,
             pady=2,
-        ).pack(anchor="w", pady=(6, 0))
-        ttk.Label(
-            contenedor,
-            text="Si lo desmarcás, el PDF sale sin llegada del barco ni fecha de vencimiento.",
-            style="Ayuda.TLabel",
-        ).pack(anchor="w")
-        ttk.Label(
-            contenedor,
-            text=(
-                "El vencimiento se calcula solo, contando el día de llegada: "
-                "5 días para vehículos, motorhome (MH) y máquinas (MAQ), "
-                "7 días para contenedores de 20 y 40. "
-                "Cualquier otro tipo sale sin fecha de vencimiento."
-            ),
-            style="Ayuda.TLabel",
-            wraplength=540,
-        ).pack(anchor="w", pady=(0, 10))
+        ).pack(anchor="w", pady=(8, 0))
 
         # Paso 3: generar
-        ttk.Label(contenedor, text="3. Generar los libres", style="Paso.TLabel").pack(anchor="w", pady=(0, 6))
+        paso3, cabecera_paso3 = self._tarjeta(contenedor, 3, "Generar los libres")
+        ttk.Label(
+            cabecera_paso3,
+            text="Se guardan en Descargas",
+            style="Ayuda.TLabel",
+        ).pack(side="right")
         self.boton_generar = ttk.Button(
-            contenedor, text="Generar libres", style="Generar.TButton", command=self._al_generar_todos
+            paso3,
+            text="Generar todos los libres",
+            style="Primario.TButton",
+            command=self._al_generar_todos,
+            cursor="hand2",
         )
         self.boton_generar.pack(fill="x")
 
-        marco_bl = ttk.Frame(contenedor)
-        marco_bl.pack(fill="x", pady=(8, 0))
-        ttk.Label(marco_bl, text="BL").pack(side="left")
+        marco_o = ttk.Frame(paso3, style="Tarjeta.TFrame")
+        marco_o.pack(fill="x", pady=(8, 6))
+        ttk.Separator(marco_o, style="Tarjeta.TSeparator").pack(side="left", fill="x", expand=True)
+        ttk.Label(marco_o, text="o uno solo", style="Ayuda.TLabel").pack(side="left", padx=10)
+        ttk.Separator(marco_o, style="Tarjeta.TSeparator").pack(side="left", fill="x", expand=True)
+
+        marco_bl = ttk.Frame(paso3, style="Tarjeta.TFrame")
+        marco_bl.pack(fill="x")
+        ttk.Label(marco_bl, text="BL", style="Codigo.TLabel").pack(side="left")
         self.entrada_bl = ttk.Entry(marco_bl, textvariable=self.bl_var)
-        self.entrada_bl.pack(side="left", fill="x", expand=True, padx=(8, 8), ipady=3)
+        self.entrada_bl.pack(side="left", fill="x", expand=True, padx=(10, 8))
+        self.entrada_bl.bind("<Return>", lambda _e: self._al_generar_un_bl())
         self.boton_generar_bl = ttk.Button(
-            marco_bl, text="Generar este BL", command=self._al_generar_un_bl
+            marco_bl,
+            text="Generar este BL",
+            style="Accion.TButton",
+            command=self._al_generar_un_bl,
+            cursor="hand2",
         )
         self.boton_generar_bl.pack(side="left")
-        ttk.Label(
-            contenedor,
-            text="Genera un solo PDF. Escribi el numero de BL y apreta \"Generar este BL\".",
-            style="Ayuda.TLabel",
-        ).pack(anchor="w", pady=(4, 0))
 
-        ttk.Label(
-            contenedor,
-            text="Los PDF se guardan en Descargas: 1716 como BL.pdf y 1714 (contenedor) como BL CNT.pdf.",
-            style="Ayuda.TLabel",
-        ).pack(anchor="w", pady=(6, 12))
-
-        # Barra de progreso
+        # Actividad
+        ttk.Label(contenedor, text="Actividad", style="Seccion.TLabel").pack(anchor="w", pady=(0, 4))
         self.progreso = ttk.Progressbar(contenedor, mode="determinate")
-        self.progreso.pack(fill="x", pady=(0, 10))
-
-        # Registro de actividad
-        ttk.Label(contenedor, text="Actividad", style="Paso.TLabel").pack(anchor="w")
+        self.progreso.pack(fill="x", pady=(0, 6))
         self.registro = ScrolledText(
-            contenedor, height=10, wrap=WORD, font=("Consolas", 9), state=DISABLED, bg="white"
+            contenedor,
+            height=4,
+            wrap=WORD,
+            font=("Consolas", 9),
+            state=DISABLED,
+            bg=COLOR_TARJETA,
+            fg=COLOR_TEXTO,
+            relief="flat",
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=COLOR_BORDE,
+            highlightcolor=COLOR_BORDE,
+            padx=10,
+            pady=6,
         )
-        self.registro.pack(fill="both", expand=True, pady=(4, 10))
+        self.registro.pack(fill="both", expand=True)
 
         # Estado de wkhtmltopdf
         marco_estado = ttk.Frame(contenedor)
-        marco_estado.pack(fill="x")
-        self.etiqueta_estado_wk = ttk.Label(marco_estado, text="", style="Estado.TLabel")
+        marco_estado.pack(fill="x", pady=(6, 0))
+        self.etiqueta_estado_wk = ttk.Label(marco_estado, text="", style="Pie.TLabel")
         self.etiqueta_estado_wk.pack(side="left")
         ttk.Button(
-            marco_estado, text="Configurar wkhtmltopdf...", command=self._configurar_wkhtmltopdf
+            marco_estado,
+            text="Configurar wkhtmltopdf",
+            style="Enlace.TButton",
+            command=self._configurar_wkhtmltopdf,
+            cursor="hand2",
         ).pack(side="right")
 
     # ------------------------------------------------------------------
@@ -277,7 +432,7 @@ class GeneradorLibresApp:
             )
         else:
             self.etiqueta_estado_wk.configure(
-                text="wkhtmltopdf no encontrado. Configuralo con el boton de la derecha.",
+                text="wkhtmltopdf no encontrado. Configuralo con el enlace de la derecha.",
                 foreground="#b91c1c",
             )
 
@@ -309,7 +464,7 @@ class GeneradorLibresApp:
     # ------------------------------------------------------------------
     def _elegir_excel(self) -> None:
         ruta = filedialog.askopenfilename(
-            title="Selecciona el Excel del manifiesto",
+            title="Selecciona el Excel de la planilla de facturación",
             filetypes=[("Archivos de Excel", "*.xlsx *.xlsm *.xls"), ("Todos los archivos", "*.*")],
         )
         if ruta:
@@ -325,6 +480,88 @@ class GeneradorLibresApp:
     # ------------------------------------------------------------------
     # Generacion (en un hilo aparte para no congelar la ventana)
     # ------------------------------------------------------------------
+    def _editar_condiciones(self) -> None:
+        ventana = Toplevel(self.root)
+        ventana.title("Días de almacenaje")
+        ventana.configure(bg=COLOR_TARJETA)
+        ventana.resizable(False, False)
+        ventana.transient(self.root)
+        ventana.grab_set()
+
+        marco = ttk.Frame(ventana, style="Tarjeta.TFrame", padding=20)
+        marco.pack(fill="both", expand=True)
+        ttk.Label(marco, text="Días libres por tipo", style="Paso.TLabel").pack(anchor="w")
+        ttk.Label(
+            marco,
+            text="Se cuenta el día de llegada del barco. Otros tipos salen sin vencimiento.",
+            style="Ayuda.TLabel",
+            wraplength=380,
+        ).pack(anchor="w", pady=(2, 14))
+
+        filas = (
+            ("VEH", "Vehículos y motorhome", self.condiciones.dias_veh),
+            ("MAQ", "Máquinas", self.condiciones.dias_maq),
+            ("CNT", "Contenedores de 20 y 40", self.condiciones.dias_cnt),
+        )
+        entradas: dict[str, StringVar] = {}
+        for codigo, descripcion, valor in filas:
+            fila = ttk.Frame(marco, style="Tarjeta.TFrame")
+            fila.pack(fill="x", pady=4)
+            ttk.Label(fila, text=codigo, width=6, style="Codigo.TLabel").pack(side="left")
+            variable = StringVar(value=str(valor))
+            entradas[codigo] = variable
+            ttk.Entry(fila, textvariable=variable, width=5, justify="center").pack(
+                side="left", padx=(0, 6)
+            )
+            ttk.Label(fila, text="días", style="Ayuda.TLabel").pack(side="left", padx=(0, 12))
+            ttk.Label(fila, text=descripcion, style="Tarjeta.TLabel").pack(side="left")
+
+        botones = ttk.Frame(marco, style="Tarjeta.TFrame")
+        botones.pack(fill="x", pady=(18, 0))
+
+        def guardar() -> None:
+            try:
+                nuevas = CondicionesAlmacenaje(
+                    dias_veh=self._dias_ingresados(entradas["VEH"].get()),
+                    dias_maq=self._dias_ingresados(entradas["MAQ"].get()),
+                    dias_cnt=self._dias_ingresados(entradas["CNT"].get()),
+                )
+            except ValueError:
+                messagebox.showwarning(
+                    APP_TITLE,
+                    "Cada condición tiene que ser un número entero de días, mayor a 0.",
+                    parent=ventana,
+                )
+                return
+            self.condiciones = nuevas
+            self.config_usuario["condiciones_almacenaje"] = {
+                "veh": nuevas.dias_veh,
+                "maq": nuevas.dias_maq,
+                "cnt": nuevas.dias_cnt,
+            }
+            _guardar_config(self.config_usuario)
+            self._log(
+                f"Días de almacenaje: VEH {nuevas.dias_veh}, "
+                f"MAQ {nuevas.dias_maq}, CNT {nuevas.dias_cnt}."
+            )
+            ventana.destroy()
+
+        ttk.Button(botones, text="Guardar", style="Accion.TButton", command=guardar).pack(side="right")
+        ttk.Button(botones, text="Cancelar", command=ventana.destroy).pack(side="right", padx=(0, 8))
+
+        ventana.update_idletasks()
+        x = self.root.winfo_rootx() + 40
+        y = self.root.winfo_rooty() + 80
+        ventana.geometry(f"+{x}+{y}")
+        ventana.wait_window()
+
+    @staticmethod
+    def _dias_ingresados(texto: str) -> int:
+        numero = int(texto.strip())
+        if numero < 1:
+            raise ValueError
+        return numero
+
     def _al_cambiar_incluir_fechas(self) -> None:
         if self.incluir_fechas_var.get():
             self.entrada_fecha.configure(state=NORMAL)
@@ -347,7 +584,9 @@ class GeneradorLibresApp:
         fecha_llegada = self.fecha_llegada_var.get().strip() if incluir_fechas else ""
 
         if not ruta_excel:
-            messagebox.showwarning(APP_TITLE, "Primero selecciona el archivo Excel del manifiesto.")
+            messagebox.showwarning(
+                APP_TITLE, "Primero selecciona el archivo Excel de la planilla de facturación."
+            )
             return
         if incluir_fechas and (not fecha_llegada or not self._fecha_valida(fecha_llegada)):
             messagebox.showwarning(
@@ -358,7 +597,7 @@ class GeneradorLibresApp:
             messagebox.showerror(
                 APP_TITLE,
                 "No se encontro wkhtmltopdf, que es necesario para crear los PDF.\n"
-                "Usa el boton 'Configurar wkhtmltopdf...' para instalarlo o indicar su ubicacion.",
+                "Usa 'Configurar wkhtmltopdf' (abajo a la derecha) para instalarlo o indicar su ubicacion.",
             )
             return
 
@@ -401,9 +640,7 @@ class GeneradorLibresApp:
             self.root.after(
                 0,
                 self._log,
-                "Generando con fechas. El vencimiento se calcula desde la llegada: "
-                "5 dias vehiculos, motorhome y maquinas, 7 dias contenedores de 20 y 40. "
-                "Cualquier otro tipo sale sin vencimiento."
+                "Generando con fechas. " + self.condiciones.resumen()
                 if incluir_fechas
                 else "Generando sin fechas.",
             )
@@ -421,6 +658,7 @@ class GeneradorLibresApp:
                 ruta_wkhtmltopdf=self.ruta_wkhtmltopdf,
                 incluir_fechas=incluir_fechas,
                 on_progreso=progreso,
+                condiciones=self.condiciones,
             )
 
             self.root.after(0, self._al_finalizar_ok, len(generados), str(destino))

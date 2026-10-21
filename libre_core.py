@@ -49,8 +49,10 @@ DEPOSITO_RETIRO_TMM = "1716"
 DEPOSITO_CONTENEDOR = "1714"
 
 # Dias libres contando el dia de llegada del barco. El vencimiento es el
-# ultimo de esos dias (llegada + dias - 1).
+# ultimo de esos dias (llegada + dias - 1). Son los valores iniciales;
+# la pantalla permite cambiarlos.
 DIAS_LIBRES_VEHICULO_MH = 5
+DIAS_LIBRES_MAQUINA = 5
 DIAS_LIBRES_CONTENEDOR_20_40 = 7
 
 # TP de contenedor: 20 o 40 como tamaño (20DC, 40HC, 40', etc.), no un 20
@@ -76,6 +78,46 @@ RUTAS_WKHTMLTOPDF_HABITUALES = [
 
 class LibreGeneratorError(Exception):
     """Errores esperables y con mensaje amigable para mostrar al usuario."""
+
+
+@dataclass
+class CondicionesAlmacenaje:
+    """Dias libres por tipo. El dia de llegada del barco cuenta como dia 1.
+
+    Los motorhome (MH) usan los mismos dias que los vehiculos (VEH).
+    """
+
+    dias_veh: int = DIAS_LIBRES_VEHICULO_MH
+    dias_maq: int = DIAS_LIBRES_MAQUINA
+    dias_cnt: int = DIAS_LIBRES_CONTENEDOR_20_40
+
+    def resumen(self) -> str:
+        return (
+            f"{self.dias_veh} dias para vehiculos y motorhome (VEH, MH), "
+            f"{self.dias_maq} dias para maquinas (MAQ), "
+            f"{self.dias_cnt} dias para contenedores de 20 y 40 (CNT). "
+            "Cualquier otro tipo sale sin vencimiento."
+        )
+
+
+def _dias_positivo(valor, defecto: int) -> int:
+    try:
+        numero = int(valor)
+    except (TypeError, ValueError):
+        return defecto
+    if numero < 1:
+        return defecto
+    return numero
+
+
+def condiciones_desde_dict(datos: Optional[dict]) -> CondicionesAlmacenaje:
+    """Arma las condiciones guardadas por el usuario, o las iniciales si faltan."""
+    datos = datos or {}
+    return CondicionesAlmacenaje(
+        dias_veh=_dias_positivo(datos.get("veh"), DIAS_LIBRES_VEHICULO_MH),
+        dias_maq=_dias_positivo(datos.get("maq"), DIAS_LIBRES_MAQUINA),
+        dias_cnt=_dias_positivo(datos.get("cnt"), DIAS_LIBRES_CONTENEDOR_20_40),
+    )
 
 
 @dataclass
@@ -153,29 +195,35 @@ def _formatear_fecha(valor) -> str:
         return texto
 
 
-def dias_libres_por_tipo(tp: str) -> Optional[int]:
+def dias_libres_por_tipo(
+    tp: str, condiciones: Optional[CondicionesAlmacenaje] = None
+) -> Optional[int]:
     """Dias libres segun la columna TP (tipo de mercaderia).
 
-    Vehiculos (VEH), motorhome (MH) y maquinas (MAQ): 5 dias.
-    Contenedores de 20 y 40: 7 dias.
+    Vehiculos (VEH) y motorhome (MH): dias_veh.
+    Maquinas (MAQ): dias_maq.
+    Contenedores de 20 y 40: dias_cnt.
     El dia de llegada del barco cuenta como dia 1.
     Cualquier otro tipo no parametrizado devuelve None: sin vencimiento.
     """
+    reglas = condiciones or CondicionesAlmacenaje()
     tipo = _normalizar(tp)
     if not tipo:
         return None
     if _RE_CONTENEDOR_20_40.search(tipo):
-        return DIAS_LIBRES_CONTENEDOR_20_40
+        return reglas.dias_cnt
     if tipo == "MH" or "MOTORHOME" in tipo or "MOTOR HOME" in tipo:
-        return DIAS_LIBRES_VEHICULO_MH
+        return reglas.dias_veh
     if tipo == "VEH" or tipo.startswith("VEH") or "VEHICULO" in tipo:
-        return DIAS_LIBRES_VEHICULO_MH
+        return reglas.dias_veh
     if tipo == "MAQ" or tipo.startswith("MAQ") or "MAQUINA" in tipo:
-        return DIAS_LIBRES_VEHICULO_MH
+        return reglas.dias_maq
     return None
 
 
-def dias_libres_de_libre(libre: Libre) -> Optional[int]:
+def dias_libres_de_libre(
+    libre: Libre, condiciones: Optional[CondicionesAlmacenaje] = None
+) -> Optional[int]:
     """Dias libres de un libre. None si el tipo no esta parametrizado (sin vencimiento).
 
     Todas las lineas del mismo BL tienen que coincidir: o todas con la misma
@@ -187,7 +235,7 @@ def dias_libres_de_libre(libre: Libre) -> Optional[int]:
     dias_distintos: list[int] = []
     hay_sin_vencimiento = False
     for item in libre.items:
-        dias = dias_libres_por_tipo(item.tp)
+        dias = dias_libres_por_tipo(item.tp, condiciones)
         if dias is None:
             hay_sin_vencimiento = True
             continue
@@ -224,13 +272,16 @@ def calcular_fecha_vencimiento(fecha_llegada: str, dias_libres: int) -> str:
     return vencimiento.strftime("%d/%m/%Y")
 
 
-def asignar_vencimiento_calculado(libre: Libre, fecha_llegada: str) -> str:
+def asignar_vencimiento_calculado(
+    libre: Libre,
+    fecha_llegada: str,
+    condiciones: Optional[CondicionesAlmacenaje] = None,
+) -> str:
     """Completa libre.fecha_vencimiento a partir de la llegada y el tipo (TP).
 
     Los tipos no parametrizados quedan sin fecha de vencimiento.
-    Las maquinas (MAQ) tienen 5 dias, igual que vehiculos y motorhome.
     """
-    dias = dias_libres_de_libre(libre)
+    dias = dias_libres_de_libre(libre, condiciones)
     if dias is None:
         libre.fecha_vencimiento = ""
         return ""
@@ -583,6 +634,7 @@ def generar_pdfs(
     ruta_wkhtmltopdf: str,
     incluir_fechas: bool = True,
     on_progreso: Optional[Callable[[int, int, str], None]] = None,
+    condiciones: Optional[CondicionesAlmacenaje] = None,
 ) -> list[Path]:
     """Genera un PDF por cada libre en la carpeta indicada.
 
@@ -605,7 +657,7 @@ def generar_pdfs(
 
     if incluir_fechas:
         for libre in libres:
-            asignar_vencimiento_calculado(libre, fecha_llegada)
+            asignar_vencimiento_calculado(libre, fecha_llegada, condiciones)
 
     generados: list[Path] = []
     total = len(libres)

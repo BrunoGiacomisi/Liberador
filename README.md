@@ -1,7 +1,7 @@
 # Generador de Libres - TECNORDI SA
 
 Aplicación de escritorio que genera automáticamente los PDF de "libre" a
-partir de un Excel de manifiesto, para las líneas cuyo **DEPOSITO** sea
+partir de un Excel de la planilla de facturación, para las líneas cuyo **DEPOSITO** sea
 **1716** (retiro TMM) o **1714** (libre de contenedor).
 
 Los PDF se descargan en la carpeta **Descargas** del usuario:
@@ -24,7 +24,7 @@ Los PDF se descargan en la carpeta **Descargas** del usuario:
    tener Python).
 
 3. Dentro del programa:
-   - Paso 1: elegí el archivo Excel del manifiesto.
+   - Paso 1: elegí el archivo Excel de la planilla de facturación.
    - Paso 2: escribí la fecha de llegada del barco (DD/MM/AAAA). Si
      desmarcás **Incluir fechas en el PDF**, el documento sale sin
      llegada del barco ni fecha de vencimiento.
@@ -56,8 +56,10 @@ PDF**, con una fila de tabla por cada línea. El documento incluye:
 - `Retiro de la mercadería en TMM`
 - `Llegada del barco: <fecha ingresada por el usuario>`
 - `Fecha de vencimiento: calculada desde la llegada, contando ese día.
-  Vehículos (VEH), motorhome (MH) y máquinas (MAQ), columna TP: 5 días.
-  Contenedores de 20 y 40 (columna TP, por ejemplo 20DC o 40HC): 7 días.
+  Vehículos y motorhome (VEH, MH): 5 días.
+  Máquinas (MAQ): 5 días.
+  Contenedores de 20 y 40 (CNT, por ejemplo 20DC o 40HC): 7 días.
+  Esos días se pueden cambiar en la pantalla, con el botón "Días de almacenaje".
   Cualquier otro tipo: el PDF sale sin fecha de vencimiento.`
 - El texto legal fijo de TECNORDI SA
 
